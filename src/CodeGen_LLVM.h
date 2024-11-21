@@ -7,6 +7,7 @@
  * generators that use llvm.
  */
 
+#include "Bounds.h"
 namespace llvm {
 class Value;
 class Module;
@@ -171,6 +172,10 @@ protected:
     llvm::MDNode *strict_fp_math_md = nullptr;
     std::vector<LoweredArgument> current_function_args;
 
+    std::vector<llvm::CallInst *> hydride_nodes;
+
+    FuncValueBounds func_value_bounds;
+
     /** The target we're generating code for */
     Halide::Target target;
 
@@ -180,6 +185,12 @@ protected:
      * module. This allows reuse of one CodeGen_LLVM object to compiled
      * multiple related modules (e.g. multiple device kernels). */
     virtual void init_module();
+
+    /** Add external_code entries to llvm module. */
+    void add_external_code(const Module &halide_module);
+
+    /** Add hydride_code entries to llvm module. */
+    void add_hydride_code();
 
     /** Run all of llvm's optimization passes on the module. */
     void optimize_module();

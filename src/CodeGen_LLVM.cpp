@@ -25,6 +25,7 @@
 #include "Lerp.h"
 #include "LowerParallelTasks.h"
 #include "Pipeline.h"
+#include "Rosette.h"
 #include "Simplify.h"
 #include "Util.h"
 
@@ -690,6 +691,21 @@ void CodeGen_LLVM::compile_func(const LoweredFunc &f, const std::string &simple_
     // Generate the function body.
     debug(1) << "Generating llvm bitcode for function " << f.name << "...\n";
     f.body.accept(this);
+
+    Stmt body = f.body;
+
+    const char *enable_hydride = getenv("HL_ENABLE_HYDRIDE");
+
+    if (enable_hydride && strcmp(enable_hydride, "0") != 0) {
+        if (target.arch == Target::X86) {
+            body = optimize_x86_instructions_synthesis(body, target, this->func_value_bounds);
+        } else if (target.arch == Target::Hexagon) {
+            // body = optimize_hexagon_instructions_synthesis(body, target, this->func_value_bounds);
+        } else if (target.arch == Target::ARM) {
+            body = optimize_arm_instructions_synthesis(body, target, this->func_value_bounds);
+        }
+    }
+    body.accept(this);
 
     // Show one time warning and clear it.
     for (auto it = onetime_warnings.begin(); it != onetime_warnings.end(); it = onetime_warnings.erase(it)) {

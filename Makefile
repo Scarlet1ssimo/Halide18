@@ -607,7 +607,11 @@ SOURCE_FILES = \
   Var.cpp \
   VectorizeLoops.cpp \
   WasmExecutor.cpp \
-  WrapCalls.cpp
+  WrapCalls.cpp \
+  VectorInfo.cpp \
+  HydrideCodeGen.cpp \
+  DistributeVec.cpp \
+  Rosette.cpp
 
  C_TEMPLATE_FILES = \
    CodeGen_C_prologue \
@@ -790,7 +794,11 @@ HEADER_FILES = \
   Util.h \
   Var.h \
   VectorizeLoops.h \
-  WrapCalls.h
+  WrapCalls.h \
+  VectorInfo.h \
+  HydrideCodeGen.h \
+  DistributeVec.h \
+  Rosette.h
 
 OBJECTS = $(SOURCE_FILES:%.cpp=$(BUILD_DIR)/%.o)
 HEADERS = $(HEADER_FILES:%.h=$(SRC_DIR)/%.h)
@@ -955,7 +963,7 @@ endif
 endif
 
 .PHONY: all
-all: distrib test_internal
+all: distrib
 
 # Depending on which linker we're using,
 # we need a different invocation to get the
@@ -2488,7 +2496,7 @@ $(DISTRIB_DIR)/bin/featurization_to_sample \
 $(DISTRIB_DIR)/bin/get_host_target
 
 .PHONY: distrib
-distrib: $(DISTRIB_DIR)/lib/libHalide.$(SHARED_EXT) autoschedulers
+distrib: $(DISTRIB_DIR)/lib/libHalide.$(SHARED_EXT) # autoschedulers
 
 $(DISTRIB_DIR)/halide.tgz: distrib
 	ln -sf $(DISTRIB_DIR) halide

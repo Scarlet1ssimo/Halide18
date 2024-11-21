@@ -106,7 +106,7 @@ Expr Simplify::visit(const Shuffle *op, ExprInfo *info) {
             }
         }
         if (can_collapse) {
-            if (op->indices.size() == 1) {
+                        if (op->indices.size() == 1) {
                 return b1->value;
             } else {
                 return Broadcast::make(b1->value, op->indices.size());
@@ -304,7 +304,7 @@ Expr Simplify::visit(const Shuffle *op, ExprInfo *info) {
 
                     concat_index += v.type().lanes();
                 }
-                if (new_concat_vectors.size() < inner_shuffle->vectors.size()) {
+                if (new_concat_vectors.size() < inner_shuffle->vectors.size() && !new_concat_vectors.empty()) {
                     return Shuffle::make_slice(Shuffle::make_concat(new_concat_vectors), op->slice_begin() - new_slice_start, op->slice_stride(), op->indices.size());
                 }
             }

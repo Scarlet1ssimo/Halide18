@@ -198,10 +198,19 @@ protected:
             return Shuffle::make_concat({const_true(true_lanes), const_false(false_lanes)});
         }
     }
+
+    // For reference, disabling any arm specific codegen and falling back to LLVM
+    // (Disabled by default)
+    bool defer_to_llvm = false;
 };
 
 CodeGen_ARM::CodeGen_ARM(const Target &target)
     : CodeGen_Posix(target) {
+    const char *compile_via_llvm = getenv("HALIDE_COMPILE_LLVM");
+    if (compile_via_llvm) {
+        defer_to_llvm = true;
+        return;
+    }
 
     // TODO(https://github.com/halide/Halide/issues/8088): See if
     // use_llvm_vp_intrinsics can replace architecture specific code in this
@@ -1136,6 +1145,10 @@ void CodeGen_ARM::begin_func(LinkageType linkage, const std::string &simple_name
 }
 
 void CodeGen_ARM::visit(const Cast *op) {
+    if (defer_to_llvm) {
+        CodeGen_Posix::visit(op);
+        return;
+    }
     if (!simd_intrinsics_disabled() && op->type.is_vector()) {
         vector<Expr> matches;
         for (const Pattern &pattern : casts) {
@@ -1183,6 +1196,10 @@ void CodeGen_ARM::visit(const Cast *op) {
 }
 
 void CodeGen_ARM::visit(const Add *op) {
+    if (defer_to_llvm) {
+        CodeGen_Posix::visit(op);
+        return;
+    }
     if (simd_intrinsics_disabled() ||
         !op->type.is_vector() ||
         !target.has_feature(Target::ARMDotProd) ||
@@ -1259,6 +1276,10 @@ void CodeGen_ARM::visit(const Add *op) {
 }
 
 void CodeGen_ARM::visit(const Sub *op) {
+    if (defer_to_llvm) {
+        CodeGen_Posix::visit(op);
+        return;
+    }
     if (simd_intrinsics_disabled()) {
         CodeGen_Posix::visit(op);
         return;
@@ -1343,6 +1364,10 @@ void CodeGen_ARM::visit(const Sub *op) {
 }
 
 void CodeGen_ARM::visit(const Min *op) {
+    if (defer_to_llvm) {
+        CodeGen_Posix::visit(op);
+        return;
+    }
     // Use a 2-wide vector for scalar floats.
     if (!simd_intrinsics_disabled() && (op->type.is_float() || op->type.is_vector())) {
         value = call_overloaded_intrin(op->type, "min", {op->a, op->b});
@@ -1355,6 +1380,10 @@ void CodeGen_ARM::visit(const Min *op) {
 }
 
 void CodeGen_ARM::visit(const Max *op) {
+    if (defer_to_llvm) {
+        CodeGen_Posix::visit(op);
+        return;
+    }
     // Use a 2-wide vector for scalar floats.
     if (!simd_intrinsics_disabled() && (op->type.is_float() || op->type.is_vector())) {
         value = call_overloaded_intrin(op->type, "max", {op->a, op->b});
@@ -1367,6 +1396,10 @@ void CodeGen_ARM::visit(const Max *op) {
 }
 
 void CodeGen_ARM::visit(const Store *op) {
+    if (defer_to_llvm) {
+        CodeGen_Posix::visit(op);
+        return;
+    }
     // Predicated store
     const bool is_predicated_store = !is_const_one(op->predicate);
     if (is_predicated_store && !target.has_feature(Target::SVE2)) {
@@ -1680,6 +1713,10 @@ void CodeGen_ARM::visit(const Store *op) {
 }
 
 void CodeGen_ARM::visit(const Load *op) {
+    if (defer_to_llvm) {
+        CodeGen_Posix::visit(op);
+        return;
+    }
     // Predicated load
     const bool is_predicated_load = !is_const_one(op->predicate);
     if (is_predicated_load && !target.has_feature(Target::SVE2)) {
@@ -1895,6 +1932,10 @@ void CodeGen_ARM::visit(const Load *op) {
 }
 
 void CodeGen_ARM::visit(const Shuffle *op) {
+    if (defer_to_llvm) {
+        CodeGen_Posix::visit(op);
+        return;
+    }
     // For small strided loads on non-Apple hardware, we may want to use vld2,
     // vld3, vld4, etc. These show up in the IR as slice shuffles of wide dense
     // loads. LLVM expects the same. The base codegen class breaks the loads
@@ -1918,6 +1959,10 @@ void CodeGen_ARM::visit(const Shuffle *op) {
 }
 
 void CodeGen_ARM::visit(const Ramp *op) {
+    if (defer_to_llvm) {
+        CodeGen_Posix::visit(op);
+        return;
+    }
     if (target_vscale() != 0 && op->type.is_int_or_uint()) {
         if (is_const_zero(op->base) && is_const_one(op->stride)) {
             codegen_func_t cg_func = [&](int lanes, const std::vector<Value *> &args) {
@@ -1945,6 +1990,10 @@ void CodeGen_ARM::visit(const Ramp *op) {
 }
 
 void CodeGen_ARM::visit(const Call *op) {
+    if (defer_to_llvm) {
+        CodeGen_Posix::visit(op);
+        return;
+    }
     if (op->is_intrinsic(Call::sorted_avg)) {
         value = codegen(halving_add(op->args[0], op->args[1]));
         return;
@@ -2057,6 +2106,10 @@ void CodeGen_ARM::visit(const Call *op) {
 }
 
 void CodeGen_ARM::visit(const LT *op) {
+    if (defer_to_llvm) {
+        CodeGen_Posix::visit(op);
+        return;
+    }
     if (op->a.type().is_float() && op->type.is_vector()) {
         // Fast-math flags confuse LLVM's aarch64 backend, so
         // temporarily clear them for this instruction.
@@ -2071,6 +2124,10 @@ void CodeGen_ARM::visit(const LT *op) {
 }
 
 void CodeGen_ARM::visit(const LE *op) {
+    if (defer_to_llvm) {
+        CodeGen_Posix::visit(op);
+        return;
+    }
     if (op->a.type().is_float() && op->type.is_vector()) {
         // Fast-math flags confuse LLVM's aarch64 backend, so
         // temporarily clear them for this instruction.
