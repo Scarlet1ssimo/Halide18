@@ -731,6 +731,27 @@ public:
                 args_fixed[0] = Broadcast::make(op->args[0], op->args[1].type().lanes());
             }
             return print_intrinsic("if", args_fixed, op->type.is_scalar());
+        } else if (op->name == "tile_matmul") {
+            std::string rkt_args = "";
+            // Dimension are in bytes:
+            // tile_matmul(m,n,k) means
+            // dst: int32*m*n//4
+            // src1: int8*m*k
+            // src2: int8*k*n//4
+
+            indent.push(indent.top() + 1);
+            for (unsigned int i = 0; i < 3; i++) {
+                if (const auto *v = as_const_int(op->args[i])) {
+                    rkt_args += "\n" + tabs() + std::to_string(*v);
+                } else {
+                    internal_assert(false) << "tile_matmul only supports static dimension\n";
+                }
+            }
+            for (unsigned int i = 3; i < op->args.size(); i++) {
+                rkt_args += "\n" + dispatch(op->args[i]);
+            }
+            indent.pop();
+            return tabs() + "(vec-tile_matmul" + rkt_args + ")";
         } else {
             return print_intrinsic(op->name, op->args, op->type.is_scalar());
         }
@@ -1014,7 +1035,6 @@ public:
         }
         indent.push(indent.top() + 1);
         std::string rkt_val = dispatch(op->value);
-        indent.pop();
         return tabs() + "(vector_reduce '" + rkt_op + " " +
                std::to_string(op->value.type().lanes() / op->type.lanes()) + "\n" + rkt_val + ")";
     }
@@ -1712,38 +1732,38 @@ public:
         if (expr.type().element_of().is_bool()) {
             return IRMutator::mutate(expr);
         }
-
+        int expr_total_bits = expr.type().bits() * expr.type().lanes();
         if (arch == HydrideSupportedArchitecture::HVX) {
             // If the expression produces a vector that is not a multiple of the base vector length, ignore it
-            if ((expr.type().bits() * expr.type().lanes() % 1024 != 0) && (expr.type().bits() > 1)) {
-                debug(0) << "Invalid vector size for hexagon: " << expr.type().bits() * expr.type().lanes() << "\n";
+            if ((expr_total_bits % 1024 != 0) && (expr.type().bits() > 1)) {
+                debug(0) << "Invalid vector size for hexagon: " << expr_total_bits << "\n";
                 return IRMutator::mutate(expr);
             }
 
-            if ((expr.type().bits() * expr.type().lanes() > 2048)) {
-                debug(0) << "Invalid vector size for HVX: " << expr.type().bits() * expr.type().lanes() << "\n";
+            if ((expr_total_bits > 2048)) {
+                debug(0) << "Invalid vector size for HVX: " << expr_total_bits << "\n";
                 return IRMutator::mutate(expr);
             }
         } else if (arch == HydrideSupportedArchitecture::X86) {
-            // std::cout << "Using X86 Optimizer" << "\n";
-            if ((expr.type().bits() * expr.type().lanes() % 128 != 0) && (expr.type().bits() > 1)) {
-                debug(1) << "Invalid vector size for X86: " << expr.type().bits() * expr.type().lanes() << "\n";
+            int AMX_SIZE = 8192;
+            if ((expr_total_bits % 128 != 0) && (expr.type().bits() > 1)) {
+                debug(0) << "Invalid vector size for X86: " << expr_total_bits << "\n";
                 return IRMutator::mutate(expr);
             }
 
-            if ((expr.type().bits() * expr.type().lanes() > 512)) {
-                debug(1) << "Invalid vector size for X86: " << expr.type().bits() * expr.type().lanes() << "\n";
+            if ((expr_total_bits > 512) && (expr_total_bits != AMX_SIZE)) {
+                debug(0) << "Invalid vector size for X86: " << expr_total_bits << "\n";
                 return IRMutator::mutate(expr);
             }
         } else if (arch == HydrideSupportedArchitecture::ARM) {
             // std::cout << "Using ARM Optimizer" << "\n";
-            if ((expr.type().bits() * expr.type().lanes() % 64 != 0) && (expr.type().bits() > 1)) {
-                debug(1) << "Invalid vector size for ARM: " << expr.type().bits() * expr.type().lanes() << "\n";
+            if ((expr_total_bits % 64 != 0) && (expr.type().bits() > 1)) {
+                debug(1) << "Invalid vector size for ARM: " << expr_total_bits << "\n";
                 return IRMutator::mutate(expr);
             }
 
-            if ((expr.type().bits() * expr.type().lanes() > 128)) {
-                debug(1) << "Invalid vector size for ARM: " << expr.type().bits() * expr.type().lanes() << "\n";
+            if ((expr_total_bits > 128)) {
+                debug(1) << "Invalid vector size for ARM: " << expr_total_bits << "\n";
                 return IRMutator::mutate(expr);
             }
         }
@@ -2520,6 +2540,8 @@ private:
             Call::rounding_shift_right,
             Call::rounding_mul_shift_right,
             Call::rounding_halving_add};
+        std::set<std::string> supported_calls_by_name = {
+            "tile_matmul"};
 
         Expr visit(const Call *op) override {
             debug(0) << "Abstracting call: " << op->name << "\n";
@@ -2530,12 +2552,16 @@ private:
                     supported = true;
                 }
             }
+            if (supported_calls_by_name.find(op->name) != supported_calls_by_name.end()) {
+                supported = true;
+            }
 
             if (!supported) {
                 std::string uname = unique_name('h');
                 abstractions[uname] = IRMutator::visit(op);
                 return Variable::make(op->type, uname);
             }
+            TRACE;
 
             if (op->is_intrinsic(Call::widening_mul)) {
                 size_t length = (op->type.bits() * op->type.lanes()) / 2;  // Divide by 2 to get input lengths

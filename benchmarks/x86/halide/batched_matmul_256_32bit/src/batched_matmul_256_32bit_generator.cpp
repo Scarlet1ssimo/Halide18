@@ -11,54 +11,51 @@ class MatrixMultiply256 : public Generator<MatrixMultiply256> {
 public:
     // Two signed 16-bit input matrices, indexed by x, y.
     GeneratorParam<int> matrix_size{"size", 256};
-    Input<Buffer<int16_t>> A{ "A", 3 };
-    Input<Buffer<int16_t>> B{ "B", 3 };
+    Input<Buffer<int8_t>> A{ "A", 2 };
+    Input<Buffer<int8_t>> B{ "B", 3 };
 
-    Output<Buffer<int32_t>> output{ "output", 3 };
+    Output<Buffer<int32_t>> res{ "res", 2 };
 
+    Func mm{"mm"};
     void generate() {
-        RDom k(0, matrix_size);
-        //matrix_mul(x, y) += cast<int32_t>(A(k, y)) * cast<int32_t>(B(x,k));
+        Var x("x"), y("y");
+        Var rxi("rxi"), ryi("ryi");
+        RVar rri("rri"), rro("rro");
+        RDom r(0, matrix_size);
+        mm(x, y) = cast<int32_t>(0);
+        mm(x, y) += cast<int32_t>(A(r, y)) * cast<int32_t>(B(r % 4, x, r / 4));
+        res = mm.in();
+        int tile_x = 16, tile_y = 16, tile_r = 64;
 
-        matrix_mul(x, y, b) = 0;
-        matrix_mul(x, y, b) += (cast<int32_t>(A(k, y, b)) * cast<int32_t>(B(x, k, b)));
-        output(x, y, b) = matrix_mul(x, y, b);
+        mm.compute_at(mm.in(), x)
+        .store_in(MemoryType::AMXTile)
+        .update()
+        .tile(x, y, rxi, ryi, tile_x, tile_y, TailStrategy::GuardWithIf)
+        .split(r, rro, rri, tile_r)
+        .reorder(rri, rxi, ryi, rro, x, y)
+        .atomic()
+        .vectorize(rri)
+        .vectorize(rxi)
+        .vectorize(ryi);
 
-        RVar red_dim(matrix_mul.update(0).get_schedule().dims()[0].var);
+        Var ixi("ixi"), iyi("iyi");
+        mm.compute_at(mm.in(), x)
+            .tile(x, y, ixi, iyi, tile_x, tile_y)
+            .vectorize(ixi)
+            .vectorize(iyi);
 
-        output
-            .compute_root()
-            .split(y, y, yi, 4, TailStrategy::ShiftInwards)
-            .split(x, x, xi, 64, TailStrategy::ShiftInwards)
-            .split(xi, xi, xii, 16, TailStrategy::ShiftInwards)
-            .vectorize(xii, 16)
-            .reorder({xii, xi, yi, x, y})
-            .unroll(xi)
-            .unroll(yi);
-            //.parallel(y);
-        matrix_mul.update(0)
-            .split(x, x, xi, 16, TailStrategy::GuardWithIf)
-            .vectorize(xi, 16)
-            .reorder({xi, x, y, red_dim})
-            .unroll(x)
-            .unroll(y);
-        matrix_mul
-            .store_in(MemoryType::Stack)
-            .compute_at(output, x)
-            .split(x, x, xi, 16, TailStrategy::RoundUp)
-            .vectorize(xi, 16)
-            .unroll(x)
-            .unroll(y);
+        // schedule the consumer
+        Var mmxi("mmxi"), mmyi("mmyi");
+        mm.in()
+            .tile(x, y, mmxi, mmyi, tile_x, tile_y)
+            .vectorize(mmxi)
+            .vectorize(mmyi);
 
-        output.print_loop_nest();
+        mm.print_loop_nest();
     }   
 
     void schedule() {}
 
-private:
-    Func matrix_mul{"matrix_mul"};
-    Var  b{ "b" }, x{ "x" }, y{ "y" }, yi{"yi"}, xi{"xi"}, 
-        yii{"yii"}, xii{"xii"}, yiii{"yiii"}, xiii{"xiii"};
 };
 
 HALIDE_REGISTER_GENERATOR(MatrixMultiply256, batched_matmul_256_32bit)
